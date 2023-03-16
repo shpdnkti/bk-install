@@ -105,7 +105,7 @@ declare -A BCS_SERVICE=(
 )
 
 case $module in 
-    paas|cmdb|gse)
+    cmdb|gse|job)
         module=${module#bk}
         target_name=$(map_module_name "${module}")
         source <(/opt/py36/bin/python ${SELF_DIR}/qq.py -p ${BK_PKG_SRC_PATH}/${target_name}/projects.yaml -P ${SELF_DIR}/bin/default/port.yaml)
@@ -125,6 +125,17 @@ case $module in
         target_name=$(map_module_name "${module}")
         pcmdrc "${target}" "get_service_status bk-${module}.* "
     ;;
+    paas)
+        module=${module#bk}
+        target_name=$(map_module_name "${module}")
+        source <(/opt/py36/bin/python ${SELF_DIR}/qq.py -p ${BK_PKG_SRC_PATH}/${target_name}/projects.yaml -P ${SELF_DIR}/bin/default/port.yaml)
+        if [[ -z ${project} ]]; then
+            projects=${_projects["${module}"]}
+            pcmdrc "${target}" "get_common_bk_service_status ${module}"
+        else
+            pcmdrc "${target}" "get_spic_bk_service_status ${module} ${project}"
+        fi
+        ;;
     monitorv3|bkmonitorv3|log|bklog)
         module=${module#bk*}
         target_name=$(map_module_name "$module")
