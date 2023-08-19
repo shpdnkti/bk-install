@@ -51,8 +51,6 @@ usage () {
             [ -p, --prefix      [可选] "安装的目标路径，默认为/data/bkee" ]
             [ --cert-path       [可选] "企业版证书存放目录，默认为$PREFIX/cert" ]
             [ -l, --log-dir     [可选] "日志目录,默认为$PREFIX/logs/open_paas" ]
-            [ --memory          [可选] "Memory limit" ]
-            [ --cpu-shares      [可选] "CPU shares (relative weight)"]
             
             [ -v, --version     [可选] 查看脚本版本号 ]
 EOF
@@ -122,14 +120,6 @@ while (( $# > 0 )); do
             shift
             CERT_PATH=$1
             ;;
-        --memory)
-            shift
-            MAX_CANTAINER_MEM=$1
-            ;;
-        --cpu-shares)
-            shift
-            MAX_CPU_SHARES=$1
-            ;;
         --help | -h | '-?' )
             usage_and_exit 0
             ;;
@@ -149,8 +139,6 @@ done
 
 LOG_DIR=${LOG_DIR:-$PREFIX/logs/open_paas}
 CERT_PATH=${CERT_PATH:-$PREFIX/cert}
-MAX_MEM=${MAX_CANTAINER_MEM:-1000}m
-MAX_CPU_SHARES=${MAX_CANTAINER_CPU:-512}
 PAAS_VERSION=$( cat "${MODULE_SRC_DIR}"/open_paas/VERSION )
 
 # 参数合法性有效性校验，这些可以使用通用函数校验。
@@ -175,22 +163,17 @@ install -o blueking -g blueking -d "${LOG_DIR}"
 install -o blueking -g blueking -m 755 -d /etc/blueking/env
 install -o blueking -g blueking -m 755 -d "$PREFIX/open_paas"
 install -o blueking -g blueking -m 755 -d "$PREFIX/public/open_paas"
-install -o blueking -g blueking -m 755 -d /var/run/open_paas
+# install -o blueking -g blueking -m 755 -d /var/run/open_paas
 
-# 配置/var/run临时目录重启后继续生效
-cat > /etc/tmpfiles.d/open_paas.conf <<EOF
-D /var/run/open_paas 0755 blueking blueking
-EOF
+# # 配置/var/run临时目录重启后继续生效
+# cat > /etc/tmpfiles.d/open_paas.conf <<EOF
+# D /var/run/open_paas 0755 blueking blueking
+# EOF
 
-# # 安装rpm依赖包，如果不存在
-# if ! rpm -q "${RPM_DEP[@]}" >/dev/null; then
-#     yum -y install "${RPM_DEP[@]}"
-# fi
-
-# 拷贝pip pkgs
-#rsync -a --delete --exclude=images "${MODULE_SRC_DIR}"/open_paas/support-files "$PREFIX/open_paas/"
 # 拷贝证书
-rsync -a --delete "${MODULE_SRC_DIR}"/open_paas/cert "$PREFIX/open_paas/"
+if [ -f "${MODULE_SRC_DIR}"/open_paas/cert ]; then
+    rsync -a --delete "${MODULE_SRC_DIR}"/open_paas/cert "$PREFIX/open_paas/"
+fi
 
 # 拷贝模块目录到$PREFIX，并创建虚拟环境，media目录是一个特例，它会有用户上传的saas包
 rsync -a --delete --exclude=media "${MODULE_SRC_DIR}"/open_paas/"${PAAS_MODULE}"/ "$PREFIX/open_paas/${PAAS_MODULE}/"
@@ -199,27 +182,31 @@ if [[ ${PAAS_MODULE} = paas ]]; then
 fi
 chown -R blueking.blueking "$PREFIX/open_paas" "$LOG_DIR"
 
-# 导入镜像
-docker load < ${MODULE_SRC_DIR}/open_paas/support-files/images/bk-paas-*.tar.gz
-
 case $PAAS_MODULE in
     login|console|esb|paas|apigw|appengine)
         # 渲染配置
         "$SELF_DIR"/render_tpl -u -m "$MODULE" -p "$PREFIX" \
             -E LAN_IP="$BIND_ADDR" -e "$ENV_FILE" \
             "$MODULE_SRC_DIR"/$MODULE/support-files/templates/*"${PAAS_MODULE}"*
-
-        if [ "$(docker ps -a -q --filter name=bk-paas-${PAAS_MODULE})" != '' ]; then
+        # 导入镜像
+        docker load --quiet < ${MODULE_SRC_DIR}/open_paas/support-files/images/bk-paas-*.tar.gz
+        if [ "$(docker ps --all --quiet --filter name=bk-paas-${PAAS_MODULE})" != '' ]; then
             docker rm -f bk-paas-${PAAS_MODULE}
+        fi
+        # 加载容器资源限额模板
+        if [ -f ${MODULE_SRC_DIR}/open_paas/support-files/images/resource.tpl ]; then
+            source ${MODULE_SRC_DIR}/open_paas/support-files/images/resource.tpl
+            MAX_MEM=$(eval echo \${${PAAS_MODULE}_mem})
+            MAX_CPU_SHARES=$(eval echo \${${PAAS_MODULE}_cpu})
         fi
         docker run --detach --network=host \
             --name bk-paas-${PAAS_MODULE} \
+            --cpu-shares "${MAX_CPU_SHARES:-1}" \
+            --memory "${MAX_MEM:-1}" \
             --volume $PREFIX/open_paas:/data/bkce/open_paas \
             --volume $PREFIX/etc/uwsgi-open_paas-${PAAS_MODULE}.ini:/data/bkce/etc/uwsgi-open_paas-${PAAS_MODULE}.ini \
             --volume $PREFIX/etc/uwsgi-open_paas-${PAAS_MODULE}.ini:/data/bkce/etc/uwsgi-open_paas-${PAAS_MODULE}.ini \
-            --volume $PREFIX/logs/open_paas/${PAAS_MODULE}:/data/bkce/logs/open_paas/${PAAS_MODULE} \
-            --cpu-shares ${MAX_CPU_SHARES} \
-            --memory ${MAX_MEM} \
+            --volume $PREFIX/logs/open_paas:/data/bkce/logs/open_paas \
             bk-paas-${PAAS_MODULE}:${PAAS_VERSION}
         ;;
     *)
