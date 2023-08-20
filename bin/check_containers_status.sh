@@ -25,8 +25,10 @@ get_container_info () {
 
 calculate_hours () {
     local given_timestamp=$(date -d "$1" +%s)
+    local current_timestamp=$(date +%s)
     local time_difference=$((current_timestamp - given_timestamp))
-    echo $((time_difference / 3600))
+    local hours=$(echo "scale=1; $time_difference / 3600.0" | bc)
+    printf "%.2f\n" $hours
 }
 
 get_container_status_description () {
