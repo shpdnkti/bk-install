@@ -1,66 +1,44 @@
 set -e
+
+_dockerctl () {
+    local action=$1
+    local docker_id=$2
+    local project_name=$3
+    echo "trying to ${action} ${project_name}"
+    if docker ${action} ${docker_id} >/dev/null; then
+        echo "${action} ${project_name} success!"
+    fi
+}
+
+manage_container_service () {
+    local action=$1
+    local module=$2
+    local project=$3
+    if [[ -n "${project}" ]]; then
+        local docker_id=$(docker ps --all | awk -v PROJ="^bk-${module}-${project}" '$NF ~ PROJ {print $1; exit}')
+        _dockerctl ${action} ${docker_id} "bk-${module}-${project}"
+    else
+        while read docker_id project_name; do
+            _dockerctl ${action} ${docker_id} ${project_name}
+        done < <(docker ps --all  | awk -v PROJ="^bk-${module}-" '$NF ~ PROJ {print $1, $NF}')
+    fi
+}
+
 action_kafka () {
     local action=$1
     systemctl ${action} kafka.service
 }
+
 action_paas () {
     local action=$1
     local project=$2
-    case ${action} in
-        stop)
-            if [[ ! -z ${project} ]]; then
-                echo "trying to stop bk-paas-${project}"
-                docker_id=$(docker ps | awk -v PROJ="^bk-paas-${project}" '$NF ~ PROJ {print $1; exit}')
-                if docker stop -t 1 $docker_id >/dev/null; then
-                    echo "stop bk-paas-${project} success!"
-                fi
-            else
-                while read docker_id project_name ignore; do
-                    echo "trying to stop ${project_name}"
-                    if docker stop -t 1 $docker_id >/dev/null; then
-                        echo "stop ${project_name} success!"
-                    fi
-                done < <(docker ps | awk -v PROJ="^bk-paas-" '$NF ~ PROJ {print $1, $NF}')
-            fi
-        ;;
-        start)
-            if [ ! -z "$project" ]; then
-                echo "trying to start bk-paas-${project}"
-                docker_id=$(docker ps -a | awk -v PROJ="^bk-paas-${project}" '$NF ~ PROJ {print $1; exit}')
-                if docker start $docker_id >/dev/null; then
-                    echo "start bk-paas-${project} success!"
-                fi
-            else
-                while read docker_id project_name ignore; do
-                    echo "trying to start ${project_name}"
-                    if docker start $docker_id >/dev/null; then
-                        echo "start ${project_name} success!"
-                    fi
-                done < <(docker ps -a | awk -v PROJ="^bk-paas-" '$NF ~ PROJ {print $1, $NF}')
-            fi            
-        ;;
-        restart)
-            if [ ! -z "$project" ]; then
-                echo "trying to restart bk-paas-${project}"
-                docker_id=$(docker ps -a | awk -v PROJ="^bk-paas-${project}" '$NF ~ PROJ {print $1; exit}')
-                if docker restart -t 1 $docker_id >/dev/null; then
-                    echo "restart bk-paas-${project} success!"
-                fi
-            else
-                while read docker_id project_name ignore; do
-                    echo "trying to start ${project_name}"
-                    if docker restart -t 1 $docker_id >/dev/null; then
-                        echo "restart ${project_name} success!"
-                    fi
-                done < <(docker ps -a | awk -v PROJ="^bk-paas-" '$NF ~ PROJ {print $1, $NF}')
-            fi            
-        ;;
-    esac
+    manage_container_service ${action} paas ${project}
 }
 
 action_usermgr () {
     local action=$1
-    systemctl ${action} bk-usermgr.service
+    local project=$2
+    manage_container_service ${action} usermgr ${project}
 }
 
 action_consul () {
@@ -203,11 +181,6 @@ action_job () {
     else
         systemctl ${action} bk-job-${project}.service
     fi
-}
-
-action_usermgr () {
-    local action=$1
-    systemctl ${action} bk-usermgr.service
 }
 
 action_monitorv3 () {

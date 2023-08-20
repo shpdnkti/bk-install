@@ -28,9 +28,6 @@ PREFIX=/data/bkee
 # 模块目录的上一级目录
 MODULE_SRC_DIR=/data/src
 
-# PYTHON目录(默认用加密的解释器)
-#PYTHON_PATH=/opt/py36_e/bin/python3.6
-
 MODULE=open_paas
 
 #RPM_DEP=(gcc mysql mysql-devel openssl-devel libevent-devel bzip2-devel sqlite-devel tk-devel gdbm-devel libffi-devel db4-devel libpcap-devel xz-devel pcre-devel nfs-utils mailcap)
@@ -145,9 +142,9 @@ PAAS_VERSION=$( cat "${MODULE_SRC_DIR}"/open_paas/VERSION )
 if ! [[ -d "$MODULE_SRC_DIR"/open_paas ]]; then
     warning "$MODULE_SRC_DIR/open_paas 不存在"
 fi
-#if ! [[ $($PYTHON_PATH --version 2>&1) = *Python* ]]; then
-#    warning "$PYTHON_PATH 不是一个合法的python二进制"
-#fi
+if ! command -v docker >/dev/null; then
+    warning "docker: command not found"
+fi
 if ! [[ -r "$ENV_FILE" ]]; then
     warning "ENV_FILE: ($ENV_FILE) 不存在或者未指定"
 fi
@@ -163,12 +160,6 @@ install -o blueking -g blueking -d "${LOG_DIR}"
 install -o blueking -g blueking -m 755 -d /etc/blueking/env
 install -o blueking -g blueking -m 755 -d "$PREFIX/open_paas"
 install -o blueking -g blueking -m 755 -d "$PREFIX/public/open_paas"
-# install -o blueking -g blueking -m 755 -d /var/run/open_paas
-
-# # 配置/var/run临时目录重启后继续生效
-# cat > /etc/tmpfiles.d/open_paas.conf <<EOF
-# D /var/run/open_paas 0755 blueking blueking
-# EOF
 
 # 拷贝证书
 if [ -f "${MODULE_SRC_DIR}"/open_paas/cert ]; then
@@ -189,7 +180,7 @@ case $PAAS_MODULE in
             -E LAN_IP="$BIND_ADDR" -e "$ENV_FILE" \
             "$MODULE_SRC_DIR"/$MODULE/support-files/templates/*"${PAAS_MODULE}"*
         # 导入镜像
-        docker load --quiet < ${MODULE_SRC_DIR}/open_paas/support-files/images/bk-paas-*.tar.gz
+        docker load --quiet < ${MODULE_SRC_DIR}/open_paas/support-files/images/bk-paas-${PAAS_VERSION}.tar.gz
         if [ "$(docker ps --all --quiet --filter name=bk-paas-${PAAS_MODULE})" != '' ]; then
             docker rm -f bk-paas-${PAAS_MODULE}
         fi
@@ -201,12 +192,12 @@ case $PAAS_MODULE in
         fi
         docker run --detach --network=host \
             --name bk-paas-${PAAS_MODULE} \
-            --cpu-shares "${MAX_CPU_SHARES:-1}" \
-            --memory "${MAX_MEM:-1}" \
+            --cpu-shares "${MAX_CPU_SHARES:-1024}" \
+            --memory "${MAX_MEM:-512}" \
             --volume $PREFIX/open_paas:/data/bkce/open_paas \
-            --volume $PREFIX/etc/uwsgi-open_paas-${PAAS_MODULE}.ini:/data/bkce/etc/uwsgi-open_paas-${PAAS_MODULE}.ini \
-            --volume $PREFIX/etc/uwsgi-open_paas-${PAAS_MODULE}.ini:/data/bkce/etc/uwsgi-open_paas-${PAAS_MODULE}.ini \
+            --volume $PREFIX/public/open_paas:/data/bkce/public/open_paas \
             --volume $PREFIX/logs/open_paas:/data/bkce/logs/open_paas \
+            --volume $PREFIX/etc/uwsgi-open_paas-${PAAS_MODULE}.ini:/data/bkce/etc/uwsgi-open_paas-${PAAS_MODULE}.ini \
             bk-paas-${PAAS_MODULE}:${PAAS_VERSION}
         ;;
     *)

@@ -125,7 +125,7 @@ case $module in
         target_name=$(map_module_name "${module}")
         pcmdrc "${target}" "get_service_status bk-${module}.* "
     ;;
-    paas)
+    paas|usermgr)
         module=${module#bk}
         target_name=$(map_module_name "${module}")
         source <(/opt/py36/bin/python ${SELF_DIR}/qq.py -p ${BK_PKG_SRC_PATH}/${target_name}/projects.yaml -P ${SELF_DIR}/bin/default/port.yaml)
