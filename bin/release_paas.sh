@@ -44,8 +44,6 @@ BACKUP_DIR=/data/src/backup
 UPDATE_CONFIG=
 # 更新模式（tgz|src）
 RELEASE_TYPE=
-# PYTHON目录(默认用加密的解释器)
-PYTHON_PATH=/opt/py36_e/bin/python3.6_e
 
 usage () {
     cat <<EOF
@@ -184,9 +182,6 @@ is_string_in_array() {
     return 1
 }
 
-MAX_MEM=${MAX_CANTAINER_MEM:-1000}m
-MAX_CPU_SHARES=${MAX_CANTAINER_CPU:-512}
-
 # 首先需要确定是哪种模式更新
 if [[ -n "$TGZ_NAME" ]]; then
     # 如果确定 $TGZ_NAME 变量，那么无论如何都优先用tgz包模式更新
@@ -205,11 +200,9 @@ fi
 # 处理待更新的模块名
 PAAS_ENABLED_MODULE=()
 readarray -t PAAS_ENABLED_MODULE < \
-    <( docker ps --filter name='^bk-paas-[a-z]+$' --format "{{.Names}}" )
-#    <(systemctl list-unit-files --state=enabled --type=service \
-#        | awk '/^bk-paas-[a-z]+\.service/ { sub(".service","",$1); print $1 }')
+    <( docker ps --all --filter name='^bk-paas-[a-z]+$' --format "{{.Names}}" )
 if (( ${#PAAS_ENABLED_MODULE[@]} == 0 )); then 
-    warning "there is no enabled bk-paas-* systemd service on this host"
+    warning "there is no enabled bk-paas-* service on this host"
 fi
 ### 文件/文件夹是否存在判断
 # 通用的变量
@@ -265,21 +258,20 @@ if [[ $RELEASE_TYPE = tgz ]]; then
     # 更新全局文件
     log "updating 全局文件 ..."
     rsync -a --delete --exclude=media --exclude="components/generic/apis" "${TMP_DIR}/open_paas/" "$PREFIX/open_paas/"
-    PAAS_VERSION=$( cat "${TMP_DIR}"/open_paas/VERSION )
 else
     rsync -a --delete --exclude=media --exclude="components/generic/apis" "${MODULE_SRC_DIR}/open_paas/" "$PREFIX/open_paas/"
-    PAAS_VERSION=$( cat "${MODULE_SRC_DIR}"/open_paas/VERSION )
 fi
+
+PAAS_VERSION=$( cat "${PREFIX}"/open_paas/VERSION )
+
+# 如果有些nfs的挂载的uid/gid不对，chown失败时，这里不至于退出
+chown -R blueking.blueking "$PREFIX/open_paas" "$PREFIX/logs/open_paas" || true
+
+# 导入镜像
+docker load --quiet < ${MODULE_SRC_DIR}/open_paas/support-files/images/bk-paas-${PAAS_VERSION}.tar.gz
 
 for m in "${UPDATE_MODULE[@]}"; do
     short_m=${m##bk-paas-}  # 去掉service name的bk-paas前缀
-#    # 更新虚拟环境和依赖包(使用加密解释器)
-#    "${SELF_DIR}"/install_py_venv_pkgs.sh -e -p "$PYTHON_PATH" \
-#        -n "${MODULE}-${short_m}" \
-#        -w "${PREFIX}/.envs" -a "$PREFIX/$MODULE/${short_m}" \
-#        -s "${PREFIX}/open_paas/support-files/pkgs" \
-#        -r "$PREFIX/$MODULE/${short_m}/requirements.txt"
-
     # 渲染配置
     if [[ $UPDATE_CONFIG -eq 1 ]]; then
         source /etc/blueking/env/local.env
@@ -287,56 +279,41 @@ for m in "${UPDATE_MODULE[@]}"; do
             -E LAN_IP="$LAN_IP" -e "$ENV_FILE" \
             "$MODULE_SRC_DIR"/$MODULE/support-files/templates/*"${short_m}"*
     fi
-
-#    # migration
-#    if [[ -f $PREFIX/$MODULE/$short_m/on_migrate ]]; then
-#        (
-#            set +u +e
-#            export BK_FILE_PATH="$PREFIX"/open_paas/cert/saas_priv.txt 
-#            export PAAS_LOGGING_DIR=$PREFIX/logs/open_paas
-#            bash "$PREFIX/$MODULE/$short_m/on_migrate"
-#        )
-#        if [[ $? -ne 0 ]]; then
-#            fail "open_paas($short_m) migrate failed"
-#        fi
-
-        # 先直接暴力停机
-        if [ "$(docker ps -a -q --filter name=bk-paas-${m})" != '' ]; then
-            docker rm -f bk-paas-${m}
-        fi
-        docker run --detach --network=host \
-            --name bk-paas-${m} \
-            --volume $PREFIX/open_paas:/data/bkce/open_paas \
-            --volume $PREFIX/etc/uwsgi-open_paas-${m}.ini:/data/bkce/etc/uwsgi-open_paas-${m}.ini \
-            --volume $PREFIX/etc/uwsgi-open_paas-${m}.ini:/data/bkce/etc/uwsgi-open_paas-${m}.ini \
-            --volume $PREFIX/logs/open_paas/${m}:/data/bkce/logs/open_paas/${m} \
-            --cpu-shares ${MAX_CPU_SHARES} \
-            --memory ${MAX_MEM} \
-            bk-paas-${m}:${PAAS_VERSION}
+    # 加载容器资源限额模板
+    if [ -f ${MODULE_SRC_DIR}/open_paas/support-files/images/resource.tpl ]; then
+        source ${MODULE_SRC_DIR}/open_paas/support-files/images/resource.tpl
+        MAX_MEM=$(eval echo \${${short_m}_mem})
+        MAX_CPU_SHARES=$(eval echo \${${short_m}_cpu})
     fi
+    # TODO: 暴力方案，后续再优化
+    if [ "$(docker ps --all --quiet --filter name=bk-paas-${short_m})" != '' ]; then
+        docker rm -f bk-paas-${short_m}
+    fi
+    docker run --detach --network=host \
+        --name bk-paas-${short_m} \
+        --cpu-shares "${MAX_CPU_SHARES:-1024}" \
+        --memory "${MAX_MEM:-512}" \
+        --volume $PREFIX/open_paas:/data/bkce/open_paas \
+        --volume $PREFIX/public/open_paas:/data/bkce/public/open_paas \
+        --volume $PREFIX/logs/open_paas:/data/bkce/logs/open_paas \
+        --volume $PREFIX/etc/uwsgi-open_paas-${short_m}.ini:/data/bkce/etc/uwsgi-open_paas-${short_m}.ini \
+        bk-paas-${short_m}:${PAAS_VERSION}
 done
-
-# 如果有些nfs的挂载的uid/gid不对，chown失败时，这里不至于退出
-chown -R blueking.blueking "$PREFIX/open_paas" "$PREFIX/logs/open_paas" || true
-
-# for m in "${UPDATE_MODULE[@]}"; do 
-#    log "starting $m"
-#    systemctl restart "$m"
-#    echo
-# done
 
 # 检查本次更新的模块启动是否正常
-running_status=()
+err_count=0
+log 'check status'
 for m in "${UPDATE_MODULE[@]}"; do
-    # running_status+=( "$(systemctl show -p SubState,MainPID,Names "$m" | awk -F= '{print $2}'  | xargs)" )
-    running_status+=( $(docker ps --filter name="^${m}$" --filter 'status=running' --format "{{.Names}}") )
+    if [[ "$(docker inspect --format '{{.State.Status}}' ${m})"  == 'running' ]]; then
+        printf '%s: %s\n' ${m} 'running'
+    else
+        printf '%s: %s\n' ${m} 'not running'
+        ((err_count++))
+    fi
 done
-
-printf "%s\n" "${running_status[@]}"
-
-if [[ $(printf "%s\n" "${running_status[@]}" | grep -c running) -ne ${#UPDATE_MODULE[@]} ]]; then
+if [[ "$err_count" == '0' ]]; then
     log "启动成功的进程数量少于更新的模块数量"
-    exit 1
 else
+    exit 1
     log "启动成功的进程数量和更新的模块数量一致"
 fi

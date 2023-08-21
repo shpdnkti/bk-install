@@ -1247,9 +1247,6 @@ install_nodeman () {
     emphasize "install consul template on host: ${module}"
     install_consul_template ${module} "${BK_NODEMAN_IP_COMMA}"
 
-    # 启动
-    "${SELF_DIR}"/pcmd.sh -m ${module} "systemctl start bk-nodeman.service"
-
     # nfs
     if [[ ! -z ${BK_NFS_IP_COMMA} ]]; then
         emphasize "mount nfs to host: $BK_NFS_IP0"

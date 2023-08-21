@@ -16,6 +16,7 @@ EXITCODE=0
 # 全局默认变量
 SELF_DIR=$(dirname "$(readlink -f "$0")")
 MODULE=bknodeman
+BKNODEMAN_MODULE=nodeman
 # 模块安装后所在的上一级目录
 PREFIX=/data/bkee
 # 蓝鲸产品包解压后存放的默认目录
@@ -34,8 +35,6 @@ BACKUP_DIR=/data/src/backup
 UPDATE_CONFIG=
 # 更新模式（tgz|src）
 RELEASE_TYPE=
-# PYTHON目录
-PYTHON_PATH=/opt/py36_e/bin/python3.6
 
 usage () {
     cat <<EOF
@@ -204,16 +203,7 @@ else
     rsync -a --delete --exclude=media "${MODULE_SRC_DIR}/bknodeman/" "$PREFIX/bknodeman/"
 fi
 
-# 安装虚拟环境和pip包
-"${SELF_DIR}"/install_py_venv_pkgs.sh -e -p "$PYTHON_PATH" \
-    -n "bknodeman-nodeman" \
-    -w "${PREFIX}/.envs" -a "$PREFIX/bknodeman/nodeman" \
-    -r "$PREFIX/bknodeman/nodeman/requirements.txt" \
-    -s "${PREFIX}/bknodeman/support-files/pkgs"
-if [[ "$PYTHON_PATH" = *_e* ]]; then
-    # 拷贝加密解释器 //todo
-    cp -a "${PYTHON_PATH}"_e "$PREFIX/.envs/${MODULE}-nodeman/bin/python"
-fi
+BKNODEMAN_VERSION=$( cat "${PREFIX}"/bknodeman/VERSION )
 
 # 渲染配置
 if [[ $UPDATE_CONFIG -eq 1 ]]; then
@@ -229,13 +219,24 @@ else
     fi
 fi
 
-# 并行更新时新版本会冲突，挪到外层处理
-#set +u 
-#source ${HOME}/.bkrc
-#workon bknodeman-nodeman && \
-## 初始化拷贝安装脚本
-#runuser -u blueking ./bin/manage.sh copy_file_to_nginx
-#set -u
-
-# 重启进程
-/opt/py36/bin/supervisorctl -c "$PREFIX"/etc/supervisor-bknodeman-nodeman.conf reload
+# 导入镜像
+docker load --quiet < ${MODULE_SRC_DIR}/$MODULE/support-files/images/bk-nodeman-${BKNODEMAN_VERSION}.tar.gz
+if [ "$(docker ps --all --quiet --filter name=bk-nodeman-${BKNODEMAN_MODULE})" != '' ]; then
+    docker rm -f bk-nodeman-${BKNODEMAN_MODULE}
+fi
+# 加载容器资源限额模板
+if [ -f ${MODULE_SRC_DIR}/$MODULE/support-files/images/resource.tpl ]; then
+    source ${MODULE_SRC_DIR}/$MODULE/support-files/images/resource.tpl
+    MAX_MEM=$(eval echo \${${BKNODEMAN_MODULE}_mem})
+    MAX_CPU_SHARES=$(eval echo \${${BKNODEMAN_MODULE}_cpu})
+fi
+docker run --detach --network=host \
+    --name bk-nodeman-${BKNODEMAN_MODULE} \
+    --cpu-shares "${MAX_CPU_SHARES:-1024}" \
+    --memory "${MAX_MEM:-4096}" \
+    --volume $PREFIX/${MODULE}:/data/bkce/${MODULE} \
+    --volume $PREFIX/public/${MODULE}:/data/bkce/public/${MODULE} \
+    --volume $PREFIX/logs/${MODULE}:/data/bkce/logs/${MODULE} \
+    --volume $PREFIX/etc/supervisor-bknodeman-nodeman.conf:/data/bkce/etc/supervisor-bknodeman-nodeman.conf \
+    bk-nodeman-${BKNODEMAN_MODULE}:${BKNODEMAN_VERSION}
+    

@@ -13,7 +13,7 @@ fi
 [[ -d /etc/docker ]] || mkdir -p /etc/docker
 cat <<EOF > /etc/docker/daemon.json
 {
-    "data-root": "$BK_HOME/public/paas_agent/docker",
+    "data-root": "$BK_HOME/public/docker",
     "exec-opts": ["native.cgroupdriver=cgroupfs"],
     "bridge": "none", 
     "iptables": false, 
@@ -32,7 +32,7 @@ cat <<EOF > /etc/docker/daemon.json
 }
 EOF
 
-mkdir -p $BK_HOME/public/paas_agent/docker
+mkdir -p $BK_HOME/public/docker
 systemctl enable --now docker
 
 case $@ in

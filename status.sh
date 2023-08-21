@@ -183,7 +183,9 @@ case $module in
         ;;
     bknodeman|nodeman)
         target_name=${module#bk}
-        pcmdrc "${target_name}" "get_service_status ${SERVICE[${target_name}]} ${SERVICE["consul-template"]} ${SERVICE["nginx"]}"
+        pcmdrc "${target_name}" "get_docker_service_status ${target_name}"
+        pcmdrc "${target_name}" "get_service_status ${SERVICE["consul-template"]} ${SERVICE["nginx"]}"
+        ;;
         ;;
     paas_plugins|paas_plugin)
         pcmdrc "${BK_PAAS_IP0}" "get_service_status bk-paas-plugins-log-alert"

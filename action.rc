@@ -191,7 +191,8 @@ action_monitorv3 () {
 
 action_nodeman () {
     local action=$1
-    systemctl ${action} bk-nodeman.service
+    local project=$2
+    manage_container_service ${action} nodeman ${project}
 }
 
 action_gse () {

@@ -15,6 +15,7 @@ EXITCODE=0
 
 # 全局默认变量
 SELF_DIR=$(dirname "$(readlink -f "$0")")
+BKNODEMAN_MODULE=nodeman
 
 # 模块安装后所在的上一级目录
 PREFIX=/data/bkee
@@ -22,13 +23,9 @@ PREFIX=/data/bkee
 # 模块目录的上一级目录
 MODULE_SRC_DIR=/data/src
 
-# PYTHON目录
-PYTHON_PATH=/opt/py36_e/bin/python3.6
-
 # 默认安装所有子模块
 MODULE=bknodeman
 PROJECTS=(nodeman)
-RPM_DEP=(mysql-devel gcc)
 ENV_FILE=
 BIND_ADDR=127.0.0.1
 OUTER_IP=
@@ -44,7 +41,7 @@ usage () {
             [ -s, --srcdir      [必选] "从该目录拷贝bknodeman目录到--prefix指定的目录" ]
             [ -p, --prefix      [可选] "安装的目标路径，默认为/data/bkee" ]
             [ --log-dir         [可选] "日志目录,默认为$PREFIX/logs/bknodeman" ]
-            [ -w, --outer-ip       [可选] "节点管理的外网地址" ]
+            [ -w, --outer-ip    [可选] "节点管理的外网地址" ]
 
             [ -v, --version     [可选] 查看脚本版本号 ]
 EOF
@@ -119,21 +116,21 @@ while (( $# > 0 )); do
 done 
 
 LOG_DIR=${LOG_DIR:-$PREFIX/logs/bknodeman}
+BKNODEMAN_VERSION=$( cat "${MODULE_SRC_DIR}"/bknodeman/VERSION )
 
 # 参数合法性有效性校验，这些可以使用通用函数校验。
 if ! [[ -d "$MODULE_SRC_DIR"/bknodeman ]]; then
     warning "$MODULE_SRC_DIR/bknodeman 不存在"
 fi
+if ! command -v docker >/dev/null; then
+    warning "docker: command not found"
+fi
 if ! [[ -r "$ENV_FILE" ]]; then
     warning "ENV_FILE: ($ENV_FILE) 不存在或者未指定"
-fi
-if ! [[ $($PYTHON_PATH --version 2>&1) = *Python* ]]; then
-    warning "$PYTHON_PATH 不是一个合法的python二进制"
 fi
 if (( EXITCODE > 0 )); then
     usage_and_exit "$EXITCODE"
 fi
-
 
 id -u blueking &>/dev/null || \
     { echo "<blueking> user has not been created, please check ./bin/update_bk_env.sh"; exit 1; } 
@@ -148,67 +145,39 @@ install -o blueking -g blueking -m 755 -d "$PREFIX"/public/bknodeman/upload/{0..
 # 给upload模块用的state临时缓存，不能放nfs路径下，所以单独nginx/cache目录
 install -o blueking -g blueking -m 755 -d "$PREFIX"/public/nginx/cache
 
-
-# 配置/var/run临时目录重启后继续生效
-cat > /etc/tmpfiles.d/bknodeman.conf <<EOF
-D /var/run/bknodeman 0755 blueking blueking
-EOF
-# 拷贝模块目录到$PREFIX
 rsync -a --delete "${MODULE_SRC_DIR}/$MODULE" "$PREFIX/"
 
-# 安装rpm依赖包，如果不存在
-if ! rpm -q "${RPM_DEP[@]}" >/dev/null; then
-    yum -y install "${RPM_DEP[@]}"
-fi
+case $BKNODEMAN_MODULE in
+    nodeman)
+        # 渲染配置
+        if [[ -r /etc/blueking/env/local.env ]]; then
+            . /etc/blueking/env/local.env
+        fi
 
-# 安装虚拟环境和pip包
-"${SELF_DIR}"/install_py_venv_pkgs.sh -e -p "$PYTHON_PATH" \
-    -n "${MODULE}-nodeman" \
-    -w "${PREFIX}/.envs" -a "$PREFIX/$MODULE/nodeman" \
-    -s "$PREFIX"/bknodeman/support-files/pkgs \
-    -r "$PREFIX/$MODULE/nodeman/requirements.txt"
-if [[ "$PYTHON_PATH" = *_e* ]]; then
-    # 拷贝加密解释器 //todo
-    cp -a "${PYTHON_PATH}"_e "$PREFIX/.envs/${MODULE}-nodeman/bin/python"
-fi
-
-# 渲染配置
-if [[ -r /etc/blueking/env/local.env ]]; then
-    . /etc/blueking/env/local.env
-fi
-
-"$SELF_DIR"/render_tpl -u -m "$MODULE" -p "$PREFIX" \
-    -e "$ENV_FILE" \
-    -E LAN_IP="$BIND_ADDR" \
-    -E WAN_IP="$OUTER_IP" \
-    "$MODULE_SRC_DIR"/$MODULE/support-files/templates/*nodeman*
-
-# 生成systemd的配置
-cat > /usr/lib/systemd/system/bk-nodeman.service <<EOF
-[Unit]
-Description=Blueking Nodeman backend Supervisor daemon
-After=network-online.target
-PartOf=blueking.target
-
-[Service]
-User=blueking
-Group=blueking
-Type=forking
-EnvironmentFile=/etc/blueking/env/local.env
-Environment=BK_FILE_PATH=$PREFIX/bknodeman/cert/saas_priv.txt
-ExecStart=/opt/py36/bin/supervisord -c $PREFIX/etc/supervisor-bknodeman-nodeman.conf
-ExecStop=/opt/py36/bin/supervisorctl -c $PREFIX/etc/supervisor-bknodeman-nodeman.conf shutdown
-ExecReload=/opt/py36/bin/supervisorctl -c $PREFIX/etc/supervisor-bknodeman-nodeman.conf reload
-Restart=on-failure
-RestartSec=3s
-LimitNOFILE=204800
-
-[Install]
-WantedBy=multi-user.target blueking.target
-EOF
-
-systemctl daemon-reload
-
-if ! systemctl is-enabled "bk-nodeman" &>/dev/null; then
-    systemctl enable "bk-nodeman"
-fi
+        "$SELF_DIR"/render_tpl -u -m "$MODULE" -p "$PREFIX" \
+            -e "$ENV_FILE" \
+            -E LAN_IP="$BIND_ADDR" \
+            -E WAN_IP="$OUTER_IP" \
+            "$MODULE_SRC_DIR"/$MODULE/support-files/templates/*nodeman*
+        # 导入镜像
+        docker load --quiet < ${MODULE_SRC_DIR}/$MODULE/support-files/images/bk-nodeman-${BKNODEMAN_VERSION}.tar.gz
+        if [ "$(docker ps --all --quiet --filter name=bk-nodeman-${BKNODEMAN_MODULE})" != '' ]; then
+            docker rm -f bk-nodeman-${BKNODEMAN_MODULE}
+        fi
+        # 加载容器资源限额模板
+        if [ -f ${MODULE_SRC_DIR}/$MODULE/support-files/images/resource.tpl ]; then
+            source ${MODULE_SRC_DIR}/$MODULE/support-files/images/resource.tpl
+            MAX_MEM=$(eval echo \${${BKNODEMAN_MODULE}_mem})
+            MAX_CPU_SHARES=$(eval echo \${${BKNODEMAN_MODULE}_cpu})
+        fi
+        docker run --detach --network=host \
+            --name bk-nodeman-${BKNODEMAN_MODULE} \
+            --cpu-shares "${MAX_CPU_SHARES:-1024}" \
+            --memory "${MAX_MEM:-4096}" \
+            --volume $PREFIX/${MODULE}:/data/bkce/${MODULE} \
+            --volume $PREFIX/public/${MODULE}:/data/bkce/public/${MODULE} \
+            --volume $PREFIX/logs/${MODULE}:/data/bkce/logs/${MODULE} \
+            --volume $PREFIX/etc/supervisor-bknodeman-nodeman.conf:/data/bkce/etc/supervisor-bknodeman-nodeman.conf \
+            bk-nodeman-${BKNODEMAN_MODULE}:${BKNODEMAN_VERSION}
+    ;;
+esac    

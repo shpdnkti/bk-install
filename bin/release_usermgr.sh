@@ -16,6 +16,7 @@ EXITCODE=0
 # 全局默认变量
 SELF_DIR=$(dirname "$(readlink -f "$0")")
 MODULE=usermgr
+USERMGR_MODULE=api
 # 模块安装后所在的上一级目录
 PREFIX=/data/bkee
 # 蓝鲸产品包解压后存放的默认目录
@@ -34,8 +35,6 @@ BACKUP_DIR=/data/src/backup
 UPDATE_CONFIG=
 # 更新模式（tgz|src）
 RELEASE_TYPE=
-# PYTHON目录
-PYTHON_PATH=/opt/py36_e/bin/python3.6
 
 usage () {
     cat <<EOF
@@ -204,16 +203,7 @@ else
     rsync -a --delete "${MODULE_SRC_DIR}/usermgr/" "$PREFIX/usermgr/"
 fi
 
-# 安装虚拟环境和pip包
-"${SELF_DIR}"/install_py_venv_pkgs.sh -e -p "$PYTHON_PATH" \
-    -n "usermgr-api" \
-    -w "${PREFIX}/.envs" -a "$PREFIX/usermgr/api" \
-    -s "$PREFIX/$MODULE/support-files/pkgs" \
-    -r "$PREFIX/usermgr/api/requirements.txt"
-if [[ "$PYTHON_PATH" = *_e* ]]; then
-    # 拷贝加密解释器 //todo
-    cp -a "${PYTHON_PATH}"_e "$PREFIX/.envs/${MODULE}-api/bin/python"
-fi
+USERMGR_VERSION=$( cat "$PREFIX"/usermgr/VERSION )
 
 # 渲染配置
 if [[ $UPDATE_CONFIG -eq 1 ]]; then
@@ -227,19 +217,24 @@ else
         rsync -av "$PREFIX"/etc/usermgr/ "$PREFIX"/usermgr/
     fi
 fi
-
-# migrate
-(
-    set +u
-    export BK_FILE_PATH="$PREFIX"/usermgr/cert/saas_priv.txt 
-    export WORKON_HOME=$PREFIX/.envs
-    VIRTUALENVWRAPPER_PYTHON="$PYTHON_PATH"
-    source "${PYTHON_PATH%/*}/virtualenvwrapper.sh"
-    workon "${MODULE}-api" && \
-    python manage.py migrate
-)
-
 chown blueking.blueking -R "$PREFIX/$MODULE"
-
-# 重启进程
-/opt/py36/bin/supervisorctl -c "$PREFIX"/etc/supervisor-usermgr-api.conf reload
+# 导入镜像
+docker load --quiet < ${MODULE_SRC_DIR}/$MODULE/support-files/images/bk-usermgr-${USERMGR_VERSION}.tar.gz
+if [ "$(docker ps --all --quiet --filter name=bk-usermgr-${USERMGR_MODULE})" != '' ]; then
+    docker rm -f bk-usermgr-${USERMGR_MODULE}
+fi
+# 加载容器资源限额模板
+if [ -f ${MODULE_SRC_DIR}/$MODULE/support-files/images/resource.tpl ]; then
+    source ${MODULE_SRC_DIR}/$MODULE/support-files/images/resource.tpl
+    MAX_MEM=$(eval echo \${${USERMGR_MODULE}_mem})
+    MAX_CPU_SHARES=$(eval echo \${${USERMGR_MODULE}_cpu})
+fi
+docker run --detach --network=host \
+    --name bk-usermgr-${USERMGR_MODULE} \
+    --cpu-shares "${MAX_CPU_SHARES:-1024}" \
+    --memory "${MAX_MEM:-512}" \
+    --volume $PREFIX/${MODULE}:/data/bkce/${MODULE} \
+    --volume $PREFIX/public/${MODULE}:/data/bkce/public/${MODULE} \
+    --volume $PREFIX/logs/${MODULE}:/data/bkce/logs/${MODULE} \
+    --volume $PREFIX/etc/supervisor-usermgr-api.conf:/data/bkce/etc/supervisor-usermgr-api.conf \
+    bk-usermgr-${USERMGR_MODULE}:${USERMGR_VERSION}
