@@ -625,18 +625,24 @@ _install_paas_project () {
     # paas服务器同步并安装python
     emphasize "sync and install python on host: ${BK_PAAS_IP_COMMA}"
     install_python $module
+    # install docker
+    emphasize "install docker on host: ${module}"
+    "${SELF_DIR}"/pcmd.sh -m ${module}  "${CTRL_DIR}/bin/install_docker.sh"
 
     # 要加判断传入值是否正确
     for project in ${project[@]}; do
-        python_path=$(get_interpreter_path "paas" "paas")
+        # python_path=$(get_interpreter_path "paas" "paas")
         project_port=${_project_port["${target_name},${project}"]}
         project_consul=${_project_consul["${target_name},${project}"]}
-        for ip in "${BK_PAAS_IP[@]}"; do 
+        IFS="," read -r -a target_server<<<"${_project_ip["${target_name},${project}"]}"
+        for ip in "${target_server[@]}"; do
             emphasize "install ${module}(${project}) on host: ${ip}"
             cost_time_attention
-            "${SELF_DIR}"/pcmd.sh -H "${ip}" "${CTRL_DIR}/bin/install_paas.sh -e '${CTRL_DIR}/bin/04-final/paas.env' -m '$project' -s '${BK_PKG_SRC_PATH}' -p '${INSTALL_PATH}' -b \$LAN_IP --python-path '${python_path}'"
+            "${SELF_DIR}"/pcmd.sh -H "${ip}" "${CTRL_DIR}/bin/install_paas.sh -e '${CTRL_DIR}/bin/04-final/paas.env' -m '$project' -s '${BK_PKG_SRC_PATH}' -p '${INSTALL_PATH}' -b \$LAN_IP"
             emphasize "register consul ${project_consul} on host: ${ip}"
             reg_consul_svc "${project_consul}" "${project_port}" "$ip"
+            emphasize "sign host as module"
+            pcmdrc ${module} "_sign_host_as_module ${project}"
         done
     done
 
@@ -962,8 +968,9 @@ install_usermgr () {
     migrate_sql $module
     emphasize "grant rabbitmq private for ${module}"
     grant_rabbitmq_pri $module
-    emphasize "sync and install python on host: ${BK_USERMGR_IP_COMMA}"
-    install_python $module
+    # install docker
+    emphasize "install docker on host: ${module}"
+    "${SELF_DIR}"/pcmd.sh -m ${module}  "${CTRL_DIR}/bin/install_docker.sh"
 
     source <(/opt/py36/bin/python ${SELF_DIR}/qq.py -p ${BK_PKG_SRC_PATH}/${target_name}/projects.yaml -P ${SELF_DIR}/bin/default/port.yaml)
     local projects=${_projects[$module]}
@@ -972,7 +979,7 @@ install_usermgr () {
         for ip in "${BK_USERMGR_IP[@]}"; do
             emphasize "install ${module} ${project} on host: ${BK_USERMGR_IP_COMMA} "
             "${SELF_DIR}"/pcmd.sh -H "${ip}" \
-                     "${CTRL_DIR}/bin/install_usermgr.sh -e ${CTRL_DIR}/bin/04-final/usermgr.env -s ${BK_PKG_SRC_PATH} -p ${INSTALL_PATH} --python-path ${python_path}"
+                     "${CTRL_DIR}/bin/install_usermgr.sh -e ${CTRL_DIR}/bin/04-final/usermgr.env -s ${BK_PKG_SRC_PATH} -p ${INSTALL_PATH}"
             reg_consul_svc "${_project_consul[${target_name},${project}]}" "${_project_port[${target_name},${project}]}" "${ip}"
         done
     done
@@ -1071,8 +1078,9 @@ _install_bkmonitor () {
     migrate_sql $module
     emphasize "grant rabbitmq private for ${module}"
     grant_rabbitmq_pri $module
-    emphasize "install python on host: ${module}"
-    install_python $module
+    # install docker
+    emphasize "install docker on host: ${module}"
+    "${SELF_DIR}"/pcmd.sh -m ${module}  "${CTRL_DIR}/bin/install_docker.sh"
 
     # 注册app_code
     emphasize "add or update appcode ${BK_MONITOR_APP_CODE}"
@@ -1085,11 +1093,7 @@ _install_bkmonitor () {
             python_path=$(get_interpreter_path $module "$project")
             emphasize "install ${module} ${project} on host: ${ip}"
             cost_time_attention
-            if [[ ${python_path} =~ "python" ]]; then
-                "${SELF_DIR}"/pcmd.sh -H "${ip}" "${CTRL_DIR}/bin/install_bkmonitorv3.sh -b \$LAN_IP -m ${project} --python-path ${python_path} -e ${CTRL_DIR}/bin/04-final/bkmonitorv3.env -s ${BK_PKG_SRC_PATH} -p ${INSTALL_PATH} -M $BK_MONITOR_RUN_MODE"
-            else
-                "${SELF_DIR}"/pcmd.sh -H "${ip}" "${CTRL_DIR}/bin/install_bkmonitorv3.sh -b \$LAN_IP -m ${project}  -e ${CTRL_DIR}/bin/04-final/bkmonitorv3.env -s ${BK_PKG_SRC_PATH} -p ${INSTALL_PATH} -M $BK_MONITOR_RUN_MODE"
-            fi
+            "${SELF_DIR}"/pcmd.sh -H "${ip}" "${CTRL_DIR}/bin/install_bkmonitorv3.sh -b \$LAN_IP -m ${project} -e ${CTRL_DIR}/bin/04-final/bkmonitorv3.env -s ${BK_PKG_SRC_PATH} -p ${INSTALL_PATH} -M $BK_MONITOR_RUN_MODE"
             emphasize "sign host as module"
             pcmdrc "${ip}" "_sign_host_as_module ${module}_${project}"
         done
@@ -1136,8 +1140,9 @@ install_nodeman () {
     local projects=${_projects["${module}"]}
     emphasize "grant rabbitmq private for ${module}"
     grant_rabbitmq_pri $module
-    emphasize "install python on host: ${module}"
-    install_python $module
+    # install docker
+    emphasize "install docker on host: ${module}"
+    "${SELF_DIR}"/pcmd.sh -m ${module}  "${CTRL_DIR}/bin/install_docker.sh"
     # 注册app_code
     emphasize "add or update appcode ${BK_NODEMAN_APP_CODE}"
     add_or_update_appcode "$BK_NODEMAN_APP_CODE" "$BK_NODEMAN_APP_SECRET"
@@ -1148,7 +1153,7 @@ install_nodeman () {
             cost_time_attention
             "${SELF_DIR}"/pcmd.sh -H "${ip}" \
                      "${CTRL_DIR}/bin/install_bknodeman.sh -e ${CTRL_DIR}/bin/04-final/bknodeman.env -s ${BK_PKG_SRC_PATH} -p ${INSTALL_PATH}  \
-                                --python-path ${python_path} -b \$LAN_IP -w \"\$WAN_IP\""  || err "install ${module} ${project} failed on host: ${ip}" 
+                                -b \$LAN_IP -w \"\$WAN_IP\""  || err "install ${module} ${project} failed on host: ${ip}" 
                      emphasize "register ${_project_consul[${target_name},${project}]} consul on host: ${ip}"
                      reg_consul_svc "${_project_consul[${target_name},${project}]}" "${_project_port[${target_name},${project}]}" "${ip}"
         done
@@ -1165,9 +1170,6 @@ install_nodeman () {
     # openresty 服务器上安装consul-template
     emphasize "install consul template on host: ${module}"
     install_consul_template ${module} "${BK_NODEMAN_IP_COMMA}"
-
-    # 启动
-    "${SELF_DIR}"/pcmd.sh -m ${module} "systemctl start bk-nodeman.service"
 
     emphasize "sync open_paas data to bkauth"
     sync_secret_to_bkauth
@@ -1206,6 +1208,7 @@ _install_gse_project () {
     #     emphasize "install ${module}-${project}"
     #     ${SELF_DIR}/pcmd.sh -m ${module} "${CTRL_DIR}/bin/install_gse.sh -e ${CTRL_DIR}/bin/04-final/gse.env -s ${BK_PKG_SRC_PATH} -p ${INSTALL_PATH}  -b \$LAN_IP"
     # done
+
     emphasize "install ${module}"
     "${SELF_DIR}"/pcmd.sh -m ${module} "${CTRL_DIR}/bin/install_gse.sh -e ${CTRL_DIR}/bin/04-final/gse.env -s ${BK_PKG_SRC_PATH} -p ${INSTALL_PATH}  -b \$LAN_IP -w \"\$WAN_IP\" --ipv6 \"\$LAN_IPV6\""
 
@@ -1261,23 +1264,18 @@ install_bklog () {
     # 初始化sql
     emphasize "migrate sql for ${module}"
     migrate_sql $module 
-    emphasize "install python on host: ${module}"
-    install_python $module
+    emphasize "install docker on host: ${module}"
+    "${SELF_DIR}"/pcmd.sh -m ${module}  "${CTRL_DIR}/bin/install_docker.sh"
     # 注册app_code
     emphasize "add or update appocode ${BK_BKLOG_APP_CODE}"
     add_or_update_appcode "$BK_BKLOG_APP_CODE" "$BK_BKLOG_APP_SECRET"
 
     for project in ${projects[@]}; do
-        local python_path=$(get_interpreter_path $module $project)
         IFS="," read -r -a target_server<<<${_project_ip["${target_name},${project}"]}
         for ip in ${target_server[@]}; do
             emphasize "install ${module} ${project} on host: ${ip}"
             cost_time_attention
-            if [[ ${python_path} =~ "python" ]]; then
-                "${SELF_DIR}"/pcmd.sh -H "${ip}" "${CTRL_DIR}/bin/install_bklog.sh  -m ${project} --python-path ${python_path} -e ${CTRL_DIR}/bin/04-final/bklog.env -b \$LAN_IP -s ${BK_PKG_SRC_PATH} -p ${INSTALL_PATH}"
-            else
-                "${SELF_DIR}"/pcmd.sh -H "${ip}" "${CTRL_DIR}/bin/install_bklog.sh  -m ${project} -e ${CTRL_DIR}/bin/04-final/bklog.env -b \$LAN_IP -s ${BK_PKG_SRC_PATH} -p ${INSTALL_PATH}"
-            fi
+            "${SELF_DIR}"/pcmd.sh -H "${ip}" "${CTRL_DIR}/bin/install_bklog.sh  -m ${project} -e ${CTRL_DIR}/bin/04-final/bklog.env -b \$LAN_IP -s ${BK_PKG_SRC_PATH} -p ${INSTALL_PATH}"
             emphasize "register ${_project_consul[${target_name},${project}]}  consul on host: ${ip}"
             reg_consul_svc "${_project_consul[${target_name},${project}]}" "${_project_port[${target_name},${project}]}" "${ip}"
     	    emphasize "sign host as module"

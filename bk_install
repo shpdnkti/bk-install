@@ -36,8 +36,7 @@ _bkc () {
     else
         ./bkcli $@ && echo "$*" >>$step_file
 
-        [ $? -eq 0 ] || exit 1
-       
+       [ $? -eq 0 ] || exit 1 
     fi
 }
 
@@ -119,8 +118,8 @@ case $service in
 
         echo ""
         echo "如果以上步骤执行没有报错, 说明你已经完成蓝鲸 PaaS 平台的部署, 现在可以通过 $(green_echo $BK_PAAS_PUBLIC_URL) 进行访问, 并请按照文档继续执行剩余步骤"
-        echo "登陆用户名(login user): $(green_echo $BK_PAAS_ADMIN_USERNAME)"
-        echo "登陆密码(login password): $(green_echo $BK_PAAS_ADMIN_PASSWORD)"
+        echo "登陆用户名(login user): $(green_echo "$BK_PAAS_ADMIN_USERNAME")"
+        echo "登陆密码(login password): $(green_echo "$BK_PAAS_ADMIN_PASSWORD")"
         echo 
         ;;
     cmdb)
@@ -313,11 +312,13 @@ case $service in
         echo "在开发者中心点击任意 APP, 在左侧导航的日志服务和告警服务中可以使用该功能"
         echo ""
         ;;
-    lesscode) 
+    lesscode)
+        _bkc install node
         _bkc sync lesscode
         _bkc install lesscode
         _bkc initdata lesscode
         _bkc start lesscode
+        _bkc status lesscode
         ;;
     saas-o|saas-t)
         ./bkcli install $@
@@ -338,7 +339,7 @@ case $service in
         _bkc install iam_search_engine
         _bkc status iam_search_engine
         echo ""
-        echo "如果以上步骤没有报错, 说明你已经完成 $service 的部署"
+        echo "如果以上步骤没有报错, 已经完成 $service 的部署"
         echo ""
         ;;
     bkapigw|apigw)
@@ -356,7 +357,7 @@ case $service in
         _bkc status apisix
         ;;
     ci) 
-       bash ./bk_install_ci
+        bash ./bk_install_ci
        ;;
     *) usage; exit 0 ;;
 esac

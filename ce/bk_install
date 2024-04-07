@@ -43,6 +43,9 @@ _bkc () {
 # 检查协议
 check_agreement || exit 1
 
+# 检查Shell
+shell_type_check 
+
 case $service in
     common)
         _bkc install controller

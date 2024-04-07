@@ -97,7 +97,7 @@ class Action(object):
             "bk_biz_id": self.bk_biz_id,
             "page": {
               "start": 0,
-              "limit": 50,
+              "limit": 200,
               "sort": "-name"
             }
         }
