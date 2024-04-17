@@ -762,7 +762,11 @@ install_etcd () {
 
 install_apisix () {
     local module=apisix
-    emphasize "install apix on host: apigw"
+    # 安装openresty
+    emphasize "install openresty on host: ${BK_APIGW_IP}"
+    "${SELF_DIR}"/pcmd.sh -m ${module}  "${CTRL_DIR}/bin/install_openresty.sh -p ${INSTALL_PATH} -d ${CTRL_DIR}/support-files/templates/nginx/"
+
+    emphasize "install apisix on host: ${BK_APIGW_IP}"
     "${SELF_DIR}"/pcmd.sh -m apigw "${CTRL_DIR}/bin/install_apisix.sh -p ${INSTALL_PATH}" 
 }
 

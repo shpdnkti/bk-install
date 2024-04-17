@@ -6,7 +6,7 @@
 
 . "$HOME"/.bashrc  # 获取 CTRL_DIR和BK_HOME变量
 
-SUPPORT_MODULE=(job paas bk_sops bk_itsm bk_iam bk_user_manage bk_nodeman nodeman usermgr)
+SUPPORT_MODULE=(job paas bk_sops bk_itsm bk_iam bk_user_manage bk_nodeman nodeman usermgr mongodb)
 
 get_bk_svc_memory () {
     awk '/^rss /{split(FILENAME,a,"/"); print a[7], int($NF/1024/1024)}' \
@@ -152,6 +152,11 @@ tweak_nodeman () {
     sed -ri '/--autoscale=/s/--autoscale=[0-9]+,[0-9]+/--autoscale=2,1/' "$BK_HOME"/etc/supervisor-bknodeman-nodeman.conf
     echo "restart bk-nodeman"
     systemctl restart bk-nodeman
+}
+
+tweak_mongodb () {
+    yq -i '.storage.wiredTiger.engineConfig.cacheSizeGB = 1' /etc/mongod.conf
+    systemctl restart mongod.service
 }
 
 tweak_all () {

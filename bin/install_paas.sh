@@ -177,7 +177,9 @@ EOF
 # 拷贝pip pkgs
 rsync -a --delete "${MODULE_SRC_DIR}"/open_paas/support-files "$PREFIX/open_paas/"
 # 拷贝证书
-rsync -a --delete "${MODULE_SRC_DIR}"/open_paas/cert "$PREFIX/open_paas/"
+if [ -f "${MODULE_SRC_DIR}"/open_paas/cert ]; then
+    rsync -a --delete "${MODULE_SRC_DIR}"/open_paas/cert "$PREFIX/open_paas/"
+fi
 
 # 拷贝模块目录到$PREFIX，并创建虚拟环境，media目录是一个特例，它会有用户上传的saas包
 rsync -a --delete --exclude=media "${MODULE_SRC_DIR}"/open_paas/"${PAAS_MODULE}"/ "$PREFIX/open_paas/${PAAS_MODULE}/"
