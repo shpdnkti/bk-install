@@ -130,7 +130,7 @@ cluster-announce-port ${PORT}
 cluster-announce-bus-port 1${PORT}
 bind ${BIND_ADDR}
 cluster-announce-ip ${BIND_ADDR}
-timeout 360
+#timeout 360
 loglevel notice
 logfile ${LOG_DIR}/${NAME}.log
 tcp-backlog 511
